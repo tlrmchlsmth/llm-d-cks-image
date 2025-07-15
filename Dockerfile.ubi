@@ -1,0 +1,266 @@
+ARG PYTHON_VERSION
+
+FROM nvcr.io/nvidia/cuda:12.8.1-devel-ubi9
+
+ARG PYTHON_VERSION
+
+WORKDIR /workspace
+
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    UV_LINK_MODE=copy \
+    TORCH_CUDA_ARCH_LIST="9.0;10.0+PTX" \
+    PYTHON_VERSION=${PYTHON_VERSION} \
+    UV_TORCH_BACKEND=${UV_TORCH_BACKEND:-cu128} \
+    VIRTUAL_ENV=/opt/vllm 
+
+# Install base packages and EPEL in single layer
+RUN dnf install -y dnf-plugins-core && \
+    dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
+    dnf config-manager --set-enabled epel && \
+    dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo && \
+    dnf install -y --allowerasing \
+        python${PYTHON_VERSION} python${PYTHON_VERSION}-pip python${PYTHON_VERSION}-wheel \
+        python${PYTHON_VERSION}-devel \
+        # use nvidia's packaged nvshmem
+        nvshmem-cuda-12 \ 
+        which procps findutils tar \
+        gcc gcc-c++ \
+        make cmake \
+        autoconf automake libtool \
+        git \
+        curl wget \
+        gzip \
+        zlib-devel \
+        openssl-devel \
+        pkg-config \
+        libuuid-devel \
+        glibc-devel \
+        rdma-core-devel \
+        numactl-libs \
+        subunit \
+        pciutils \
+        pciutils-libs \
+        ninja-build \
+    && dnf clean all
+
+# Setup Python virtual environment
+RUN python${PYTHON_VERSION} -m venv /opt/vllm && \
+    ${VIRTUAL_ENV}/bin/pip install --no-cache -U pip wheel uv meson-python ninja pybind11
+
+ENV LIBRARY_PATH="/usr/local/cuda/lib64:/usr/local/lib:/usr/local/lib64" \
+CPATH="/usr/include:/usr/local/include:/usr/local/cuda/include" \
+PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig"
+
+# Set NVSHMEM paths for CMake discovery
+ENV NVSHMEM_DIR=/usr/lib64/nvshmem/12 \
+    PATH="/usr/bin/nvshmem_12:${PATH}" \
+    CPATH="/usr/include/nvshmem_12:${CPATH}" \
+    LIBRARY_PATH="/usr/lib64/nvshmem/12:${LIBRARY_PATH}"
+
+# Build and install gdrcopy
+RUN --mount=type=cache,target=/var/cache/git \
+    git clone https://github.com/NVIDIA/gdrcopy.git && \
+    cd gdrcopy && \
+    PREFIX=/usr/local DESTLIB=/usr/local/lib make lib_install && \
+    cp src/libgdrapi.so.2.* /usr/lib64/ && \
+    ldconfig && \
+    cd .. && rm -rf gdrcopy
+
+# Build and install UCX
+RUN --mount=type=cache,target=/var/cache/git \
+    git clone https://github.com/openucx/ucx.git && \
+    cd ucx && \
+    git checkout v1.18.0 && \
+    ./autogen.sh && \
+    ./configure \
+        --enable-shared \
+        --disable-static \
+        --disable-doxygen-doc \
+        --enable-cma \
+        --enable-devel-headers \
+        --with-cuda=/usr/local/cuda \
+        --with-verbs \
+        --with-dm \
+        --with-gdrcopy=/usr/local \
+        --enable-mt \
+        --with-mlx5 \
+        --prefix=/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd .. && rm -rf ucx
+
+ARG NVSHMEM_VERSION=3.3.9
+
+# Copy patches before build
+COPY patches/ /tmp/patches/
+
+RUN cd /tmp && \
+    wget https://developer.nvidia.com/downloads/assets/secure/nvshmem/nvshmem_src_cuda12-all && \
+    tar -xf nvshmem_src_cuda12-all && \
+    cd nvshmem_src && \
+    git apply /tmp/patches/cks_nvshmem.patch && \
+    mkdir build && \
+    cd build && \
+    cmake \
+    -G Ninja \
+    -DNVSHMEM_PREFIX=/opt/nvshmem-${NVSHMEM_VERSION} \
+    -DCMAKE_CUDA_ARCHITECTURES="90a;100" \
+    -DNVSHMEM_PMIX_SUPPORT=0 \
+    -DNVSHMEM_LIBFABRIC_SUPPORT=0 \
+    -DNVSHMEM_IBRC_SUPPORT=1 \
+    -DNVSHMEM_IBGDA_SUPPORT=1 \
+    -DNVSHMEM_IBDEVX_SUPPORT=1 \
+    -DNVSHMEM_SHMEM_SUPPORT=0 \
+    -DNVSHMEM_USE_GDRCOPY=1 \
+    -DNVSHMEM_MPI_SUPPORT=0 \
+    -DNVSHMEM_USE_NCCL=0 \
+    -DNVSHMEM_BUILD_TESTS=0 \
+    -DNVSHMEM_BUILD_EXAMPLES=0 \
+    -DGDRCOPY_HOME=/usr/local \
+    -DNVSHMEM_DISABLE_CUDA_VMM=1 \
+    .. && \
+    ninja -j$(nproc) && \
+    ninja install && \
+    cd /tmp && rm -rf nvshmem_src_${NVSHMEM_VERSION}*
+
+ARG NIXL_REPO_URL="https://github.com/ai-dynamo/nixl.git"
+ARG NIXL_COMMIT_SHA="v0.3.0"
+RUN --mount=type=cache,target=/tmp/nixl-cache \
+    ln -s /usr/local/cuda/lib64/stubs/libcuda.so /usr/lib64/ && \
+    cd /opt && \
+    git clone ${NIXL_REPO_URL} . && \
+    git checkout ${NIXL_COMMIT_SHA} && \
+    export PATH="${VIRTUAL_ENV}/bin:$PATH" && \
+    export PYTHON="${VIRTUAL_ENV}/bin/python" && \
+    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH}" && \
+    export CUDA_HOME="/usr/local/cuda" && \
+    export LD_LIBRARY_PATH="/usr/local/cuda/lib64:/usr/local/cuda/lib64/stubs/:/usr/local/cuda/extras/CUPTI/lib64:/usr/local/lib:/usr/local/lib64:/usr/lib64:${LD_LIBRARY_PATH}" && \
+    meson setup build --prefix=/usr/local && \
+    cd build && \
+    ninja && \
+    ninja install && \
+    cd .. && \
+    # Install nixl Python package directly
+    uv pip install --no-cache-dir . && \
+    rm -rf build
+
+RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf && \
+    echo "/usr/local/lib64" >> /etc/ld.so.conf.d/local.conf && \
+    ldconfig
+
+
+WORKDIR /workspace
+
+# Define commit SHAs as build args to avoid layer invalidation
+ARG LMCACHE_COMMIT_SHA=c1563bc9c72ea0d71156a3d9a6cd643170828acf
+ARG VLLM_COMMIT_SHA=66f6fbd393721c98440436ab067304ac4331219c
+
+# Clone repositories with cache mounts
+RUN --mount=type=cache,target=/var/cache/git \
+    git clone https://github.com/neuralmagic/LMCache.git && \
+    cd LMCache && \
+    git checkout -q $LMCACHE_COMMIT_SHA && \
+    cd ..
+
+RUN --mount=type=cache,target=/var/cache/git \
+    git clone https://github.com/vllm-project/vllm.git && \
+    cd vllm && \
+    git checkout -q $VLLM_COMMIT_SHA && \
+    cd ..
+
+# Use existing virtual environment at /opt/vllm
+WORKDIR /workspace/vllm
+
+# Install core dependencies (Torch first)
+RUN source /opt/vllm/bin/activate && \
+    uv pip install --upgrade pip && \
+    uv pip install torch==2.7.0+cu128
+
+# Install vllm editable
+RUN source /opt/vllm/bin/activate && \
+    VLLM_COMMIT=$(git merge-base HEAD origin/main) \
+    VLLM_PRECOMPILED_WHEEL_LOCATION=https://wheels.vllm.ai/${VLLM_COMMIT}/vllm-1.0.0.dev-cp38-abi3-manylinux1_x86_64.whl \
+    VLLM_USE_PRECOMPILED=1 uv pip install --editable .
+
+# Install related packages and cleanup
+RUN source /opt/vllm/bin/activate && \
+    uv pip install ../LMCache/
+
+# Install DeepEP and DeepGEMM after vLLM (they need PyTorch from the same environment)
+ARG DEEPEP_URL="https://github.com/neuralmagic/DeepEP"
+ARG DEEPGEMM_URL="https://github.com/neuralmagic/DeepGEMM"
+ARG PPLX_KERNELS_URL="https://github.com/neuralmagic/pplx-kernels"
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    source /opt/vllm/bin/activate && \
+    uv pip install build && \
+    # Install DeepEP
+    cd /tmp && \
+    git clone "${DEEPEP_URL}" deepep && \
+    cd deepep && \
+    # git checkout v1.1.0rc2_downstream && \
+    python -m build --no-isolation && \
+    uv pip install dist/*.whl && \
+    cd .. && rm -rf deepep
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    source /opt/vllm/bin/activate && \
+    # Install DeepGEMM
+    cd /tmp && \
+    uv pip install cuda-python && \
+    git clone "${DEEPGEMM_URL}" deepgemm && \
+    cd deepgemm && \
+    git checkout multi_arch_support && \
+    git submodule update --init --recursive && \
+    uv pip install setuptools-scm && \
+    python -m build --no-isolation && \
+    uv pip install dist/*.whl && \
+    cd .. && rm -rf deepgemm
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    source /opt/vllm/bin/activate && \
+    # Install pplx-kernels
+    cd /tmp && \
+    uv pip install numpy && \
+    git clone ${PPLX_KERNELS_URL} pplx-kernels && \
+    cd pplx-kernels && \
+    git checkout build-fixes && \
+    # Note: This is some symlink magic to ensure nvshmem is found by CMake
+    # the pplx-kernels build system expects nvshmem to be in a prefix like /opt/nvshmem
+    mkdir -p /opt/nvshmem && \
+    ln -s /usr/lib64/nvshmem/12/* /opt/nvshmem/ && \
+    cp -r /usr/include/nvshmem_12 /opt/include && \
+    NVSHMEM_PREFIX=/opt/nvshmem-${NVSHMEM_VERSION} python -m build --no-isolation && \
+    uv pip install dist/*.whl && \
+    cd .. && rm -rf pplx-kernels
+
+# enable fast downloads from hf and cleanup
+RUN --mount=type=cache,target=/root/.cache/uv \
+    source /opt/vllm/bin/activate && \
+    uv pip install hf-transfer hf-xet huggingface_hub[hf_transfer,hf_xet]
+
+ENV HOME=/home/vllm \
+    VLLM_USAGE_SOURCE=production-docker-image \
+    VLLM_WORKER_MULTIPROC_METHOD=fork \
+    OUTLINES_CACHE_DIR=/tmp/outlines \
+    NUMBA_CACHE_DIR=/tmp/numba \
+    TRITON_CACHE_DIR=/tmp/triton \
+    # Setup NCCL monitoring with torch
+    # For tensor-parallel workloads, this monitors for NCCL deadlocks when
+    # one rank dies, and tears down the NCCL process groups so that the driver
+    # can cleanly exit.
+    TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=15 \
+    TORCH_NCCL_DUMP_ON_TIMEOUT=0
+
+# setup non-root user for OpenShift
+RUN umask 002 && \
+    useradd --uid 2000 --gid 0 vllm && \
+    mkdir -p /home/vllm && \
+    chmod g+rwx /home/vllm
+
+USER 2000
+WORKDIR /home/vllm
+
+ENTRYPOINT ["/opt/vllm/bin/python", "-m", "vllm.entrypoints.openai.api_server"]
