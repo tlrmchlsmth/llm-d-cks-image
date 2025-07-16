@@ -1,5 +1,3 @@
-ARG PYTHON_VERSION
-
 FROM nvcr.io/nvidia/cuda:12.8.1-devel-ubi9
 
 ARG PYTHON_VERSION
@@ -10,7 +8,7 @@ ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     UV_LINK_MODE=copy \
     TORCH_CUDA_ARCH_LIST="9.0;10.0+PTX" \
-    PYTHON_VERSION=${PYTHON_VERSION} \
+    PYTHON_VERSION=${PYTHON_VERSION:-3.12} \
     UV_TORCH_BACKEND=${UV_TORCH_BACKEND:-cu128} \
     VIRTUAL_ENV=/opt/vllm 
 
@@ -22,6 +20,7 @@ RUN dnf install -y dnf-plugins-core && \
     dnf install -y --allowerasing \
         python${PYTHON_VERSION} python${PYTHON_VERSION}-pip python${PYTHON_VERSION}-wheel \
         python${PYTHON_VERSION}-devel \
+        python3.9-devel \
         # use nvidia's packaged nvshmem
         nvshmem-cuda-12 \ 
         which procps findutils tar \
@@ -43,6 +42,13 @@ RUN dnf install -y dnf-plugins-core && \
         pciutils-libs \
         ninja-build \
     && dnf clean all
+
+RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 120 \
+                 --slave /usr/bin/pip3 pip3 /usr/bin/pip${PYTHON_VERSION} && \
+    alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 20 \
+                 --slave /usr/bin/pip3 pip3 /usr/bin/pip3.9 && \
+    alternatives --set      python3 /usr/bin/python${PYTHON_VERSION}
+
 
 # Setup Python virtual environment
 RUN python${PYTHON_VERSION} -m venv /opt/vllm && \
@@ -126,10 +132,11 @@ RUN cd /tmp && \
     cd /tmp && rm -rf nvshmem_src_${NVSHMEM_VERSION}*
 
 ARG NIXL_REPO_URL="https://github.com/ai-dynamo/nixl.git"
-ARG NIXL_COMMIT_SHA="v0.3.0"
+ARG NIXL_COMMIT_SHA="0.3.0"
 RUN --mount=type=cache,target=/tmp/nixl-cache \
     ln -s /usr/local/cuda/lib64/stubs/libcuda.so /usr/lib64/ && \
-    cd /opt && \
+    mkdir /opt/nixl && \
+    cd /opt/nixl && \
     git clone ${NIXL_REPO_URL} . && \
     git checkout ${NIXL_COMMIT_SHA} && \
     export PATH="${VIRTUAL_ENV}/bin:$PATH" && \
