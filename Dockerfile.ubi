@@ -57,10 +57,12 @@ CPATH="/usr/include:/usr/local/include:/usr/local/cuda/include" \
 PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig"
 
 # Set NVSHMEM paths for CMake discovery
+ARG NVSHMEM_VERSION=3.3.9
+ENV TRITON_LIBCUDA_PATH="/usr/lib64"
 ENV NVSHMEM_DIR="/opt/nvshmem-${NVSHMEM_VERSION}" \
-    PATH="/usr/bin/nvshmem_12:${PATH}" \
-    CPATH="/usr/include/nvshmem_12:${CPATH}" \
-    LIBRARY_PATH="/usr/lib64/nvshmem/12:${LIBRARY_PATH}"
+    PATH="${NVSHMEM_DIR}/bin:${PATH}" \
+    CPATH="${NVSHMEM_DIR}/include:${CPATH}" \
+    LIBRARY_PATH="${NVSHMEM_DIR}/lib:${LIBRARY_PATH}"
 
 # Build and install gdrcopy
 RUN --mount=type=cache,target=/var/cache/git \
@@ -94,8 +96,6 @@ RUN --mount=type=cache,target=/var/cache/git \
     make install && \
     ldconfig && \
     cd .. && rm -rf ucx
-
-ARG NVSHMEM_VERSION=3.3.9
 
 # Copy patches before build
 COPY patches/ /tmp/patches/
@@ -169,10 +169,11 @@ RUN --mount=type=cache,target=/var/cache/git \
     git checkout -q $LMCACHE_COMMIT_SHA && \
     cd ..
 
+# one-pod-per-node-lb branch
 RUN --mount=type=cache,target=/var/cache/git \
-    git clone https://github.com/vllm-project/vllm.git && \
+    git clone https://github.com/robertgshaw2-redhat/vllm.git && \
     cd vllm && \
-    git checkout -q $VLLM_COMMIT_SHA && \
+    git checkout -q 5fb68091db9f412925c2e58ec2447de2da20839b && \
     cd ..
 
 # Use existing virtual environment at /opt/vllm
