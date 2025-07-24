@@ -173,7 +173,8 @@ RUN --mount=type=cache,target=/var/cache/git \
 RUN --mount=type=cache,target=/var/cache/git \
     git clone https://github.com/robertgshaw2-redhat/vllm.git && \
     cd vllm && \
-    git checkout -q 5fb68091db9f412925c2e58ec2447de2da20839b && \
+    git fetch && \
+    git checkout -q d0d68a4c33ee97aaa2ff22938732eb91df581001 && \
     cd ..
 
 # Use existing virtual environment at /opt/vllm
@@ -186,9 +187,7 @@ RUN source /opt/vllm/bin/activate && \
 
 # Install vllm editable
 RUN source /opt/vllm/bin/activate && \
-    VLLM_COMMIT=$(git merge-base HEAD origin/main) \
-    VLLM_PRECOMPILED_WHEEL_LOCATION=https://wheels.vllm.ai/${VLLM_COMMIT}/vllm-1.0.0.dev-cp38-abi3-manylinux1_x86_64.whl \
-    VLLM_USE_PRECOMPILED=1 uv pip install --editable .
+    uv pip install --editable .
 
 # Install related packages and cleanup
 RUN source /opt/vllm/bin/activate && \
@@ -240,6 +239,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN --mount=type=cache,target=/root/.cache/uv \
     source /opt/vllm/bin/activate && \
     uv pip install hf-transfer hf-xet huggingface_hub[hf_transfer,hf_xet]
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+  source /opt/vllm/bin/activate && \
+  git remote add njhill https://github.com/njhill/vllm && \
+  git fetch njhill && \
+  git checkout -q a7f0df320ea6af3eb724fcfb3045c6c842b4fc37 && \
+  VLLM_USE_PRECOMPILED=1 uv pip install -e .
 
 ENV HOME=/home/vllm \
     VLLM_USAGE_SOURCE=production-docker-image \
