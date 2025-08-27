@@ -244,9 +244,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
   source /opt/vllm/bin/activate && \
   git remote add vllm https://github.com/vllm-project/vllm && \
   git remote add njhill https://github.com/njhill/vllm && \
+  git remote add tms https://github.com/tlrmchlsmth/vllm && \
   git fetch njhill && \
   git fetch vllm && \
-  git checkout -q f1c9ef3afdbbd4559d8af215336c0bc678a4b0cc && \
+  git fetch tms && \
+  git checkout -q  822772a6817aa084ab993f5ae37ae9ef9db38840 && \
   VLLM_USE_PRECOMPILED=1 uv pip install -e .
 
 ENV HOME=/home/vllm \
