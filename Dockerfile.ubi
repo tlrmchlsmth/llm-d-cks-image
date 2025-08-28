@@ -248,7 +248,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
   git fetch njhill && \
   git fetch vllm && \
   git fetch tms && \
-  git checkout -q  822772a6817aa084ab993f5ae37ae9ef9db38840 && \
+  git checkout -q 0c33a56977b3941d72079822562ba9c230b0b31c && \
   VLLM_USE_PRECOMPILED=1 uv pip install -e .
 
 ENV HOME=/home/vllm \
