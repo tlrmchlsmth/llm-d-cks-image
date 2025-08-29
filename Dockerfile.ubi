@@ -195,7 +195,7 @@ RUN source /opt/vllm/bin/activate && \
 
 # Install DeepEP and DeepGEMM after vLLM (they need PyTorch from the same environment)
 ARG DEEPEP_URL="https://github.com/neuralmagic/DeepEP"
-ARG DEEPGEMM_URL="https://github.com/neuralmagic/DeepGEMM"
+ARG DEEPGEMM_URL="https://github.com/deepseek-ai/DeepGEMM"
 ARG PPLX_KERNELS_URL="https://github.com/neuralmagic/pplx-kernels"
 
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -217,7 +217,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install cuda-python && \
     git clone "${DEEPGEMM_URL}" deepgemm && \
     cd deepgemm && \
-    git checkout 6f5ef38de3819555aa591736fb309ef043960180 && \
+    git checkout ea9c5d9270226c5dd7a577c212e9ea385f6ef048 && \
     git submodule update --init --recursive && \
     uv pip install setuptools-scm && \
     python setup.py install && \
@@ -240,6 +240,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     source /opt/vllm/bin/activate && \
     uv pip install hf-transfer hf-xet huggingface_hub[hf_transfer,hf_xet]
 
+
+ARG VLLM_BASE_COMMIT=6a3d470b5e320c59ebcb36123c86234c754a03e1
+
 RUN --mount=type=cache,target=/root/.cache/uv \
   source /opt/vllm/bin/activate && \
   git remote add vllm https://github.com/vllm-project/vllm && \
@@ -248,8 +251,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
   git fetch njhill && \
   git fetch vllm && \
   git fetch tms && \
-  git checkout -q 0c33a56977b3941d72079822562ba9c230b0b31c && \
+  git checkout -q ${VLLM_BASE_COMMIT} && \
   VLLM_USE_PRECOMPILED=1 uv pip install -e .
+
+ARG VLLM_CHECKOUT_COMMIT=6a3d470b5e320c59ebcb36123c86234c754a03e1
+RUN --mount=type=cache,target=/root/.cache/uv \
+  git fetch tms && \
+  git checkout -q ${VLLM_CHECKOUT_COMMIT}
 
 ENV HOME=/home/vllm \
     VLLM_USAGE_SOURCE=production-docker-image \
