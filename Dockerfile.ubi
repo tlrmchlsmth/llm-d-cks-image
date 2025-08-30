@@ -241,7 +241,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install hf-transfer hf-xet huggingface_hub[hf_transfer,hf_xet]
 
 
-ARG VLLM_BASE_COMMIT=6a3d470b5e320c59ebcb36123c86234c754a03e1
+ARG VLLM_BASE_COMMIT=038e9be4eb7a63189c8980845d80cb96957b9919
 
 RUN --mount=type=cache,target=/root/.cache/uv \
   source /opt/vllm/bin/activate && \
@@ -254,7 +254,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
   git checkout -q ${VLLM_BASE_COMMIT} && \
   VLLM_USE_PRECOMPILED=1 uv pip install -e .
 
-ARG VLLM_CHECKOUT_COMMIT=6a3d470b5e320c59ebcb36123c86234c754a03e1
+ARG VLLM_CHECKOUT_COMMIT=${VLLM_BASE_COMMIT}
 RUN --mount=type=cache,target=/root/.cache/uv \
   git fetch tms && \
   git checkout -q ${VLLM_CHECKOUT_COMMIT}
