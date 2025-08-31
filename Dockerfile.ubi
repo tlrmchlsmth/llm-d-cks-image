@@ -248,15 +248,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
   git remote add vllm https://github.com/vllm-project/vllm && \
   git remote add njhill https://github.com/njhill/vllm && \
   git remote add tms https://github.com/tlrmchlsmth/vllm && \
-  git fetch njhill && \
   git fetch vllm && \
-  git fetch tms && \
   git checkout -q ${VLLM_BASE_COMMIT} && \
   VLLM_USE_PRECOMPILED=1 uv pip install -e .
 
 ARG VLLM_CHECKOUT_COMMIT=${VLLM_BASE_COMMIT}
 RUN --mount=type=cache,target=/root/.cache/uv \
   git fetch tms && \
+  git fetch vllm && \
   git checkout -q ${VLLM_CHECKOUT_COMMIT}
 
 ENV HOME=/home/vllm \
