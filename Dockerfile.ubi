@@ -241,7 +241,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install hf-transfer hf-xet huggingface_hub[hf_transfer,hf_xet]
 
 
-ENV VLLM_BASE_COMMIT=038e9be4eb7a63189c8980845d80cb96957b9919
+ENV VLLM_BASE_COMMIT=81eea3d348c26fb1e6ff0185ad109aedd60a28a2
 
 RUN --mount=type=cache,target=/root/.cache/uv \
   source /opt/vllm/bin/activate && \
