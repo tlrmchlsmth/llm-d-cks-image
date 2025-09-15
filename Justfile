@@ -1,4 +1,4 @@
-BASE_COMMIT := "6a3d470b5e320c59ebcb36123c86234c754a03e1"
+BASE_COMMIT := `cat base_commit.txt`
 
 build HASH:
   docker build -f Dockerfile.ubi \

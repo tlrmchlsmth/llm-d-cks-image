@@ -241,8 +241,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install hf-transfer hf-xet huggingface_hub[hf_transfer,hf_xet]
 
 
-ENV VLLM_BASE_COMMIT=f510715882304796a96e33028b4f6de1b026c2c7
-
+ARG VLLM_BASE_COMMIT
 RUN --mount=type=cache,target=/root/.cache/uv \
   source /opt/vllm/bin/activate && \
   git remote add vllm https://github.com/vllm-project/vllm && \
