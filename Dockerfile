@@ -1,6 +1,9 @@
 FROM ghcr.io/llm-d/llm-d-cuda-dev:pr-254
 
-RUN git clone https://github.com/vllm-project/vllm.git /home/code/vllm
+USER root
+
+RUN mkdir -p /home/code && \
+    git clone https://github.com/vllm-project/vllm.git /home/code/vllm
 
 WORKDIR /home/code/vllm
 
