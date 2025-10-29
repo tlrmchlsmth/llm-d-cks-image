@@ -1,31 +1,14 @@
 #!/bin/bash
-set -e
+# Wrapper script for cron job - delegates to Justfile with timestamps
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
-# Fetch the latest vLLM commit from main branch
-echo "Fetching latest vLLM commit..."
-LATEST_COMMIT=$(git ls-remote https://github.com/vllm-project/vllm.git refs/heads/main | cut -f1)
+# Set PATH to include cargo bin directory for nested just calls
+export PATH="/home/tms/.cargo/bin:$PATH"
 
-echo "Latest vLLM commit: $LATEST_COMMIT"
+# Add timestamp to each line of output
+just nightly 2>&1 | while IFS= read -r line; do
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $line"
+done
 
-# Update base_commit.txt
-echo "$LATEST_COMMIT" > base_commit.txt
-
-# Build the nightly image with caching
-docker build -f Dockerfile \
-  --build-arg VLLM_BASE_COMMIT="$LATEST_COMMIT" \
-  --build-arg VLLM_CHECKOUT_COMMIT="$LATEST_COMMIT" \
-  -t llm-d-dev:nightly \
-  -t "llm-d-dev:nightly-$LATEST_COMMIT" \
-  -t quay.io/tms/llm-d-dev:latest \
-  -t "quay.io/tms/llm-d-dev:nightly-$LATEST_COMMIT" \
-  .
-
-# Push to registry
-echo "Pushing to registry..."
-docker push quay.io/tms/llm-d-dev:latest
-docker push "quay.io/tms/llm-d-dev:nightly-$LATEST_COMMIT"
-
-echo "Nightly build complete!"
-echo "Local tags: llm-d-dev:nightly and llm-d-dev:nightly-$LATEST_COMMIT"
-echo "Pushed to: quay.io/tms/llm-d-dev:latest and quay.io/tms/llm-d-dev:nightly-$LATEST_COMMIT"
-echo "vLLM base commit updated in base_commit.txt: $LATEST_COMMIT"
+# Preserve exit status
+exit ${PIPESTATUS[0]}

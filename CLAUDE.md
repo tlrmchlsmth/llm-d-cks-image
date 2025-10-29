@@ -4,26 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a Docker image build repository for llm-d development environments. It creates custom vLLM development images based on the `llm-d-cuda-dev` base image, with automated nightly builds and efficient layered caching to enable fast custom builds.
+This is a Docker image build repository for llm-d development environments. It creates custom vLLM development images using the llm-d project's official Dockerfile, with automated nightly builds and efficient layered caching to enable fast custom builds.
 
 ## Architecture
 
 The build system uses a two-layer approach to minimize rebuild times:
 
-1. **Base Layer** (large, ~8.5GB, rebuilt nightly):
-   - Uses `ghcr.io/llm-d/llm-d-cuda-dev:latest`
-   - Installs vLLM at `VLLM_BASE_COMMIT` with compiled binaries
+1. **Base Layer** (large, rebuilt nightly):
+   - Built from `llm-d/docker/Dockerfile.cuda` (llm-d submodule)
+   - Full compilation of vLLM with all dependencies
+   - Tagged as `llm-d-dev:nightly`
    - Updated nightly to track latest vLLM main
 
 2. **Checkout Layer** (small, <100MB, rebuilt per session):
-   - Checks out `VLLM_CHECKOUT_COMMIT` without reinstalling
-   - Uses `VLLM_USE_PRECOMPILED=1` to reuse base layer binaries
-   - Only works for changes that don't require recompiling vLLM binaries
+   - Built from `./Dockerfile` which extends `llm-d-dev:nightly`
+   - Clones vLLM repo and checks out `VLLM_CHECKOUT_COMMIT`
+   - Uses `VLLM_USE_PRECOMPILED=1` to reuse compiled binaries from base layer
+   - Only works for changes that don't require recompiling vLLM binaries (e.g., Python-only changes)
 
 ### Build Arguments
 
-- `VLLM_BASE_COMMIT`: The vLLM commit where binaries are compiled (stored in `base_commit.txt`, updated by nightly builds)
-- `VLLM_CHECKOUT_COMMIT`: The specific commit to checkout for testing (defaults to `VLLM_BASE_COMMIT`)
+- `VLLM_CHECKOUT_COMMIT`: The specific vLLM commit to checkout for testing (used in quick builds)
 
 ### Git Remotes
 
@@ -45,8 +46,8 @@ Enable automated nightly builds (runs at 2 AM):
 This creates a cron job that:
 - Fetches the latest vLLM main commit
 - Updates `base_commit.txt` locally
-- Builds and pushes to `quay.io/tms/llm-d-dev:latest`
-- Caches locally as `llm-d-dev:nightly`
+- Builds from `llm-d/docker/Dockerfile.cuda`
+- Tags locally as `llm-d-dev:nightly` and `llm-d-dev:nightly-<commit>`
 
 ### Manual Nightly Build
 
@@ -63,9 +64,11 @@ just build <commit-hash>
 ```
 
 This:
-- Uses the base commit from `base_commit.txt`
-- Checks out `<commit-hash>` in the small checkout layer
-- Tags and pushes as `quay.io/tms/llm-d-dev:0.3.0-<commit-hash>`
+- Uses `llm-d-dev:nightly` as the base image
+- Clones vLLM and checks out `<commit-hash>`
+- Installs with `VLLM_USE_PRECOMPILED=1` to reuse binaries from base
+- Tags locally as `llm-d-dev:<commit-hash>`
+- Pushes as `quay.io/tms/llm-d-dev:0.3.0-<commit-hash>`
 
 **Note**: This only works for commits that don't require recompiling vLLM binaries (e.g., Python-only changes).
 
@@ -79,12 +82,13 @@ This:
 2. Run `just build <hash>` to build and push a custom commit image (couple minutes, <100MB layer)
 
 ### When Base Layer Needs Updating
-If you need to update the base layer manually (e.g., to test a different base commit):
-1. Edit `base_commit.txt` with the desired commit hash
-2. Run `just nightly` to rebuild the base layer
-3. Continue with normal `just build <hash>` workflow
+The base layer is automatically updated nightly. To manually update:
+1. Run `just nightly` to rebuild the base layer from latest vLLM main
+2. Continue with normal `just build <hash>` workflow
 
 ## Important Notes
 
-- `base_commit.txt` is gitignored and managed locally by nightly builds
-- The entrypoint runs the vLLM OpenAI API server: `/opt/vllm/bin/python -m vllm.entrypoints.openai.api_server`
+- `base_commit.txt` is gitignored and managed locally by nightly builds (tracks the vLLM commit in the base layer)
+- The `llm-d` submodule contains the official llm-d Dockerfile used for base layer builds
+- The entrypoint runs the vLLM OpenAI API server: `python -m vllm.entrypoints.openai.api_server`
+- Quick builds clone vLLM to `/home/code/vllm` and set up multiple git remotes for easy development
